@@ -139,9 +139,9 @@
                 const cols = rows[i];
                 if (!cols || cols.length < 2 || !cols[1]) continue; // 빈 행 스킵
 
-                const name = cols[3] || '';       
-                const phone = cols[5];           
-                const message = cols[9] || '';   
+                const name = cols[2] || '';       
+                const phone = cols[4];           
+                const message = cols[8] || '';   
 
                 const encodedMessage = encodeURIComponent(message);
                 const smsLink = `sms:${phone}?body=${encodedMessage}`;
