@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>구글 스프레드시트 연락처 문자 발송기</title>
+    <style>
+        body { font-family: 'Apple SD Gothic Neo', sans-serif; margin: 20px; background-color: #f9f9f9; color: #333; max-width: 900px; margin: 40px auto; padding: 0 20px; }
+        h2 { color: #2c3e50; }
+        .input-container { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        input[type="text"] { width: 70%; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; margin-right: 10px; }
+        button { padding: 10px 16px; font-size: 14px; background-color: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background-color: #2980b9; }
+        table { width: 100%; border-collapse: collapse; background: #fff; margin-top: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
+        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
+        th { background-color: #f4f4f4; }
+        .btn-sms {
+            display: inline-block;
+            padding: 8px 14px;
+            background-color: #27ae60;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .btn-sms:hover { background-color: #219653; }
+        #loading { font-style: italic; color: #666; margin-top: 15px; display: none; }
+        .error { color: #e74c3c; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+    <h2>구글 스프레드시트 연락처 문자 보내기</h2>
+    
+    <div class="input-container">
+        <label for="sheetUrl"><strong>구글 스프레드시트 공유 링크 입력:</strong></label><br><br>
+        <input type="text" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/.../edit?usp=sharing">
+        <button onclick="loadSheetData()">데이터 불러오기</button>
+        <div id="loading">데이터를 불러오는 중입니다...</div>
+        <div id="errorMsg" class="error"></div>
+    </div>
+    
+    <table id="dataTable" style="display: none;">
+        <thead>
+            <tr>
+                <th>이름 (참고)</th>
+                <th>연락처</th>
+                <th>보낼 메시지</th>
+                <th>작업</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- 자바스크립트로 데이터가 채워집니다 -->
+        </tbody>
+    </table>
+
+    <script>
+        // 사용자가 입력한 구글 스프레드시트 URL을 CSV 다운로드 링크로 변환
+        function convertToCsvUrl(inputUrl) {
+            try {
+                // 스프레드시트 ID 추출을 위한 정규식 또는 파싱
+                const match = inputUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+                if (!match || !match[1]) {
+                    throw new Error('올바른 구글 스프레드시트 링크가 아닙니다.');
+                }
+                const spreadsheetId = match[1];
+                // CSV 내보내기 링크 반환
+                return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
+            } catch (e) {
+                throw new Error('링크 형식을 확인해주세요. (예: .../d/스프레드시트ID/edit...)');
+            }
+        }
+
+        async function loadSheetData() {
+            const urlInput = document.getElementById('sheetUrl').value.trim();
+            const loadingEl = document.getElementById('loading');
+            const errorEl = document.getElementById('errorMsg');
+            const tableEl = document.getElementById('dataTable');
+
+            errorEl.innerText = '';
+            tableEl.style.display = 'none';
+
+            if (!urlInput) {
+                errorEl.innerText = '스프레드시트 링크를 입력해주세요.';
+                return;
+            }
+
+            try {
+                loadingEl.style.display = 'block';
+                const csvUrl = convertToCsvUrl(urlInput);
+
+                const response = await fetch(csvUrl);
+                if (!response.ok) {
+                    throw new Error('데이터를 불러오지 못했습니다. 스프레드시트가 "링크가 있는 모든 사용자에게 공개"로 설정되어 있는지 확인해주세요.');
+                }
+                
+                const csvText = await response.text();
+                parseCSVAndRender(csvText);
+            } catch (error) {
+                errorEl.innerText = '오류 발생: ' + error.message;
+            } finally {
+                loadingEl.style.display = 'none';
+            }
+        }
+
+        // 간단한 CSV 파서 함수
+        function parseCSV(text) {
+            const lines = text.split('\n');
+            return lines.map(line => {
+                const row = [];
+                let inQuotes = false;
+                let entry = '';
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        row.push(entry.trim());
+                        entry = '';
+                    } else {
+                        entry += char;
+                    }
+                }
+                row.push(entry.trim());
+                return row;
+            });
+        }
+
+        function parseCSVAndRender(csvText) {
+            const rows = parseCSV(csvText);
+            const tbody = document.querySelector('#dataTable tbody');
+            tbody.innerHTML = '';
+
+            let validRowCount = 0;
+
+            // 첫 번째 줄(인덱스 0)은 헤더이므로 i = 1부터 시작
+            // 컬럼 순서: 0번: 이름, 1번: 연락처, 2번: 메시지
+            for (let i = 0; i < rows.length; i++) {
+                const cols = rows[i];
+                if (!cols || cols.length < 2 || !cols[1]) continue; // 빈 행 스킵
+
+                const name = cols[3] || '';       
+                const phone = cols[5];           
+                const message = cols[9] || '';   
+
+                const encodedMessage = encodeURIComponent(message);
+                const smsLink = `sms:${phone}?body=${encodedMessage}`;
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${name}</td>
+                    <td>${phone}</td>
+                    <td>${message}</td>
+                    <td><a href="${smsLink}" class="btn-sms">문자 보내기</a></td>
+                `;
+                tbody.appendChild(tr);
+                validRowCount++;
+            }
+
+            if (validRowCount === 0) {
+                document.getElementById('errorMsg').innerText = '유효한 데이터 행이 없거나 컬럼 구조를 확인해주세요.';
+                return;
+            }
+
+            document.getElementById('dataTable').style.display = 'table';
+        }
+    </script>
+</body>
+</html>
