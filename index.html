@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>구글 스프레드시트 연락처 문자 발송기</title>
     <style>
-        body { font-family: 'Apple SD Gothic Neo', sans-serif; margin: 20px; background-color: #f9f9f9; color: #333; max-width: 1000px; margin: 40px auto; padding: 0 20px; }
+        body { font-family: 'Apple SD Gothic Neo', sans-serif; margin: 20px; background-color: #f9f9f9; color: #333; max-width: 1100px; margin: 40px auto; padding: 0 20px; }
         h2 { color: #2c3e50; }
         .input-container { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
         input[type="text"] { width: 70%; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; margin-right: 10px; }
@@ -14,8 +14,10 @@
         table { width: 100%; border-collapse: collapse; background: #fff; margin-top: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
         th, td { padding: 12px; border: 1px solid #ddd; text-align: left; vertical-align: top; }
         th { background-color: #f4f4f4; }
-        /* 여러 줄 메시지가 화면에 줄바꿈되어 보이도록 설정 */
-        .message-cell { white-space: pre-wrap; font-size: 13px; max-width: 400px; line-height: 1.4; }
+        .message-cell { white-space: pre-wrap; font-size: 13px; max-width: 350px; line-height: 1.4; }
+        .image-container { display: flex; gap: 8px; flex-wrap: wrap; }
+        .image-container img { width: 60px; height: 60px; object-fit: cover; border-radius: 4px; border: 1px solid #ddd; cursor: pointer; transition: transform 0.2s; }
+        .image-container img:hover { transform: scale(1.05); }
         .btn-sms {
             display: inline-block;
             padding: 8px 14px;
@@ -33,7 +35,7 @@
 </head>
 <body>
 
-    <h2>구글 스프레드시트 연락처 문자 보내기</h2>
+    <h2>구글 스프레드시트 연락처 문자 발송기</h2>
     
     <div class="input-container">
         <label for="sheetUrl"><strong>구글 스프레드시트 공유 링크 입력:</strong></label><br><br>
@@ -48,6 +50,7 @@
             <tr>
                 <th>이름 (C열)</th>
                 <th>연락처 (E열)</th>
+                <th>이미지 (J열)</th>
                 <th>보낼 메시지 (I열)</th>
                 <th>작업</th>
             </tr>
@@ -103,7 +106,7 @@
             }
         }
 
-        // 따옴표 내부의 줄바꿈과 쉼표를 정확하게 인식하는 견고한 CSV 파서
+        // CSV 파서 (따옴표 및 줄바꿈 보존)
         function parseCSV(text) {
             const rows = [];
             let currentRow = [];
@@ -117,17 +120,17 @@
                 if (inQuotes) {
                     if (char === '"') {
                         if (nextChar === '"') {
-                            currentField += '"'; // 이스케이프된 따옴표 처리
+                            currentField += '"';
                             i++;
                         } else {
-                            inQuotes = false; // 따옴표 닫힘
+                            inQuotes = false;
                         }
                     } else {
-                        currentField += char; // 따옴표 내부의 모든 문자(줄바꿈 포함)를 그대로 유지
+                        currentField += char;
                     }
                 } else {
                     if (char === '"') {
-                        inQuotes = true; // 따옴표 열림
+                        inQuotes = true;
                     } else if (char === ',') {
                         currentRow.push(currentField.trim());
                         currentField = '';
@@ -151,6 +154,16 @@
             return rows;
         }
 
+        // 구글 드라이브 링크를 웹에서 바로 볼 수 있는 다이렉트 이미지 링크로 변환
+        function getDriveDirectImageUrl(url) {
+            const cleanUrl = url.trim();
+            const match = cleanUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+            if (match && match[1]) {
+                return `https://lh3.googleusercontent.com/d/${match[1]}`;
+            }
+            return cleanUrl; // 드라이브 링크가 아니거나 형식이 다르면 원본 반환
+        }
+
         function parseCSVAndRender(csvText) {
             const rows = parseCSV(csvText);
             const tbody = document.querySelector('#dataTable tbody');
@@ -161,12 +174,30 @@
             for (let i = 1; i < rows.length; i++) {
                 const cols = rows[i];
                 
-                // C열(인덱스 2: 이름), E열(인덱스 4: 연락처), I열(인덱스 8: 메시지)
+                // 열 매핑: C열(인덱스 2: 이름), E열(인덱스 4: 연락처), I열(인덱스 8: 메시지), J열(인덱스 9: 이미지 링크들)
                 const name = cols[2] || '';       
                 const phone = cols[4] || '';      
                 const message = cols[8] || '';    
+                const imagesStr = cols[9] || '';  
 
-                if (!phone) continue; // 연락처가 없는 빈 행은 건너뜀
+                if (!phone) continue; // 연락처가 없으면 건너뜀
+
+                // J열의 링크들을 ", " 또는 콤마 기준으로 분리
+                let imageHtml = '';
+                if (imagesStr) {
+                    const rawUrls = imagesStr.split(',');
+                    let imgTags = '';
+                    rawUrls.forEach(rawUrl => {
+                        const trimmed = rawUrl.trim();
+                        if (trimmed) {
+                            const directUrl = getDriveDirectImageUrl(trimmed);
+                            imgTags += `<a href="${trimmed}" target="_blank"><img src="${directUrl}" alt="이미지" title="클릭 시 원본 링크 열기"></a>`;
+                        }
+                    });
+                    if (imgTags) {
+                        imageHtml = `<div class="image-container">${imgTags}</div>`;
+                    }
+                }
 
                 const encodedMessage = encodeURIComponent(message);
                 const smsLink = `sms:${phone}?body=${encodedMessage}`;
@@ -175,6 +206,7 @@
                 tr.innerHTML = `
                     <td>${name}</td>
                     <td>${phone}</td>
+                    <td>${imageHtml}</td>
                     <td class="message-cell">${message}</td>
                     <td><a href="${smsLink}" class="btn-sms">문자 보내기</a></td>
                 `;
@@ -183,7 +215,7 @@
             }
 
             if (validRowCount === 0) {
-                document.getElementById('errorMsg').innerText = '유효한 데이터 행이 없거나 지정된 컬럼(C, E, I열)에 데이터가 없습니다.';
+                document.getElementById('errorMsg').innerText = '유효한 데이터 행이 없거나 지정된 컬럼 데이터를 찾을 수 없습니다.';
                 return;
             }
 
