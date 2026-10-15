@@ -15,9 +15,10 @@
         th, td { padding: 12px; border: 1px solid #ddd; text-align: left; vertical-align: top; }
         th { background-color: #f4f4f4; }
         .message-cell { white-space: pre-wrap; font-size: 13px; max-width: 350px; line-height: 1.4; }
-        .image-container { display: flex; gap: 8px; flex-wrap: wrap; }
-        .image-container img { width: 60px; height: 60px; object-fit: cover; border-radius: 4px; border: 1px solid #ddd; cursor: pointer; transition: transform 0.2s; }
-        .image-container img:hover { transform: scale(1.05); }
+        
+        .image-container { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+        .image-container img { width: 50px; height: 50px; object-fit: cover; border-radius: 4px; border: 1px solid #ddd; cursor: pointer; }
+
         .btn-sms {
             display: inline-block;
             padding: 8px 14px;
@@ -31,6 +32,11 @@
         .btn-sms:hover { background-color: #219653; }
         #loading { font-style: italic; color: #666; margin-top: 15px; display: none; }
         .error { color: #e74c3c; margin-top: 15px; }
+        .toast {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8); color: #fff; padding: 10px 20px;
+            border-radius: 20px; font-size: 14px; display: none; z-index: 1000;
+        }
     </style>
 </head>
 <body>
@@ -50,7 +56,7 @@
             <tr>
                 <th>이름 (C열)</th>
                 <th>연락처 (E열)</th>
-                <th>이미지 (J열)</th>
+                <th>이미지 미리보기 (J열)</th>
                 <th>보낼 메시지 (I열)</th>
                 <th>작업</th>
             </tr>
@@ -59,6 +65,8 @@
             <!-- 자바스크립트로 데이터가 채워집니다 -->
         </tbody>
     </table>
+
+    <div id="toast" class="toast">메시지와 이미지 링크가 클립보드에 복사되었습니다!</div>
 
     <script>
         function convertToCsvUrl(inputUrl) {
@@ -154,14 +162,21 @@
             return rows;
         }
 
-        // 구글 드라이브 링크를 웹에서 바로 볼 수 있는 다이렉트 이미지 링크로 변환
         function getDriveDirectImageUrl(url) {
             const cleanUrl = url.trim();
             const match = cleanUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
             if (match && match[1]) {
                 return `https://lh3.googleusercontent.com/d/${match[1]}`;
             }
-            return cleanUrl; // 드라이브 링크가 아니거나 형식이 다르면 원본 반환
+            return cleanUrl;
+        }
+
+        function showToast() {
+            const toast = document.getElementById('toast');
+            toast.style.display = 'block';
+            setTimeout(() => {
+                toast.style.display = 'none';
+            }, 2500);
         }
 
         function parseCSVAndRender(csvText) {
@@ -171,10 +186,11 @@
 
             let validRowCount = 0;
 
-            for (let i = 1; i < rows.length; i++) {
+            // [변경] 헤더가 없으므로 i = 0부터 마지막 행까지 전체를 데이터로 처리
+            for (let i = 0; i < rows.length; i++) {
                 const cols = rows[i];
                 
-                // 열 매핑: C열(인덱스 2: 이름), E열(인덱스 4: 연락처), I열(인덱스 8: 메시지), J열(인덱스 9: 이미지 링크들)
+                // C열(인덱스 2: 이름), E열(인덱스 4: 연락처), I열(인덱스 8: 메시지), J열(인덱스 9: 이미지 링크들)
                 const name = cols[2] || '';       
                 const phone = cols[4] || '';      
                 const message = cols[8] || '';    
@@ -182,14 +198,16 @@
 
                 if (!phone) continue; // 연락처가 없으면 건너뜀
 
-                // J열의 링크들을 ", " 또는 콤마 기준으로 분리
+                // 이미지 미리보기 HTML 생성
                 let imageHtml = '';
+                let imageUrlsForCopy = [];
                 if (imagesStr) {
                     const rawUrls = imagesStr.split(',');
                     let imgTags = '';
                     rawUrls.forEach(rawUrl => {
                         const trimmed = rawUrl.trim();
                         if (trimmed) {
+                            imageUrlsForCopy.push(trimmed);
                             const directUrl = getDriveDirectImageUrl(trimmed);
                             imgTags += `<a href="${trimmed}" target="_blank"><img src="${directUrl}" alt="이미지" title="클릭 시 원본 링크 열기"></a>`;
                         }
@@ -199,7 +217,13 @@
                     }
                 }
 
-                const encodedMessage = encodeURIComponent(message);
+                // 문자 전송 시 메시지 + 이미지 링크를 함께 구성
+                let fullMessage = message;
+                if (imageUrlsForCopy.length > 0) {
+                    fullMessage += "\n\n[이미지 링크]\n" + imageUrlsForCopy.join("\n");
+                }
+
+                const encodedMessage = encodeURIComponent(fullMessage);
                 const smsLink = `sms:${phone}?body=${encodedMessage}`;
 
                 const tr = document.createElement('tr');
@@ -208,7 +232,7 @@
                     <td>${phone}</td>
                     <td>${imageHtml}</td>
                     <td class="message-cell">${message}</td>
-                    <td><a href="${smsLink}" class="btn-sms">문자 보내기</a></td>
+                    <td><a href="${smsLink}" class="btn-sms" onclick="showToast()">문자 보내기</a></td>
                 `;
                 tbody.appendChild(tr);
                 validRowCount++;
