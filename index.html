@@ -5,15 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>구글 스프레드시트 연락처 문자 발송기</title>
     <style>
-        body { font-family: 'Apple SD Gothic Neo', sans-serif; margin: 20px; background-color: #f9f9f9; color: #333; max-width: 900px; margin: 40px auto; padding: 0 20px; }
+        body { font-family: 'Apple SD Gothic Neo', sans-serif; margin: 20px; background-color: #f9f9f9; color: #333; max-width: 1000px; margin: 40px auto; padding: 0 20px; }
         h2 { color: #2c3e50; }
         .input-container { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
         input[type="text"] { width: 70%; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; margin-right: 10px; }
         button { padding: 10px 16px; font-size: 14px; background-color: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; }
         button:hover { background-color: #2980b9; }
         table { width: 100%; border-collapse: collapse; background: #fff; margin-top: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
-        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
+        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; vertical-align: top; }
         th { background-color: #f4f4f4; }
+        /* 여러 줄 메시지가 화면에 줄바꿈되어 보이도록 설정 */
+        .message-cell { white-space: pre-wrap; font-size: 13px; max-width: 400px; line-height: 1.4; }
         .btn-sms {
             display: inline-block;
             padding: 8px 14px;
@@ -22,6 +24,7 @@
             text-decoration: none;
             border-radius: 4px;
             font-weight: bold;
+            white-space: nowrap;
         }
         .btn-sms:hover { background-color: #219653; }
         #loading { font-style: italic; color: #666; margin-top: 15px; display: none; }
@@ -43,9 +46,9 @@
     <table id="dataTable" style="display: none;">
         <thead>
             <tr>
-                <th>이름 (참고)</th>
-                <th>연락처</th>
-                <th>보낼 메시지</th>
+                <th>이름 (C열)</th>
+                <th>연락처 (E열)</th>
+                <th>보낼 메시지 (I열)</th>
                 <th>작업</th>
             </tr>
         </thead>
@@ -55,16 +58,13 @@
     </table>
 
     <script>
-        // 사용자가 입력한 구글 스프레드시트 URL을 CSV 다운로드 링크로 변환
         function convertToCsvUrl(inputUrl) {
             try {
-                // 스프레드시트 ID 추출을 위한 정규식 또는 파싱
                 const match = inputUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
                 if (!match || !match[1]) {
                     throw new Error('올바른 구글 스프레드시트 링크가 아닙니다.');
                 }
                 const spreadsheetId = match[1];
-                // CSV 내보내기 링크 반환
                 return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
             } catch (e) {
                 throw new Error('링크 형식을 확인해주세요. (예: .../d/스프레드시트ID/edit...)');
@@ -103,27 +103,52 @@
             }
         }
 
-        // 간단한 CSV 파서 함수
+        // 따옴표 내부의 줄바꿈과 쉼표를 정확하게 인식하는 견고한 CSV 파서
         function parseCSV(text) {
-            const lines = text.split('\n');
-            return lines.map(line => {
-                const row = [];
-                let inQuotes = false;
-                let entry = '';
-                for (let i = 0; i < line.length; i++) {
-                    const char = line[i];
+            const rows = [];
+            let currentRow = [];
+            let currentField = '';
+            let inQuotes = false;
+
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                const nextChar = text[i + 1];
+
+                if (inQuotes) {
                     if (char === '"') {
-                        inQuotes = !inQuotes;
-                    } else if (char === ',' && !inQuotes) {
-                        row.push(entry.trim());
-                        entry = '';
+                        if (nextChar === '"') {
+                            currentField += '"'; // 이스케이프된 따옴표 처리
+                            i++;
+                        } else {
+                            inQuotes = false; // 따옴표 닫힘
+                        }
                     } else {
-                        entry += char;
+                        currentField += char; // 따옴표 내부의 모든 문자(줄바꿈 포함)를 그대로 유지
+                    }
+                } else {
+                    if (char === '"') {
+                        inQuotes = true; // 따옴표 열림
+                    } else if (char === ',') {
+                        currentRow.push(currentField.trim());
+                        currentField = '';
+                    } else if (char === '\r' || char === '\n') {
+                        if (char === '\r' && nextChar === '\n') {
+                            i++;
+                        }
+                        currentRow.push(currentField.trim());
+                        rows.push(currentRow);
+                        currentRow = [];
+                        currentField = '';
+                    } else {
+                        currentField += char;
                     }
                 }
-                row.push(entry.trim());
-                return row;
-            });
+            }
+            if (currentField !== '' || currentRow.length > 0) {
+                currentRow.push(currentField.trim());
+                rows.push(currentRow);
+            }
+            return rows;
         }
 
         function parseCSVAndRender(csvText) {
@@ -133,15 +158,15 @@
 
             let validRowCount = 0;
 
-            // 첫 번째 줄(인덱스 0)은 헤더이므로 i = 1부터 시작
-            // 컬럼 순서: 0번: 이름, 1번: 연락처, 2번: 메시지
-            for (let i = 0; i < rows.length; i++) {
+            for (let i = 1; i < rows.length; i++) {
                 const cols = rows[i];
-                if (!cols || cols.length < 2 || !cols[1]) continue; // 빈 행 스킵
-
+                
+                // C열(인덱스 2: 이름), E열(인덱스 4: 연락처), I열(인덱스 8: 메시지)
                 const name = cols[2] || '';       
-                const phone = cols[4];           
-                const message = cols[8] || '';   
+                const phone = cols[4] || '';      
+                const message = cols[8] || '';    
+
+                if (!phone) continue; // 연락처가 없는 빈 행은 건너뜀
 
                 const encodedMessage = encodeURIComponent(message);
                 const smsLink = `sms:${phone}?body=${encodedMessage}`;
@@ -150,7 +175,7 @@
                 tr.innerHTML = `
                     <td>${name}</td>
                     <td>${phone}</td>
-                    <td>${message}</td>
+                    <td class="message-cell">${message}</td>
                     <td><a href="${smsLink}" class="btn-sms">문자 보내기</a></td>
                 `;
                 tbody.appendChild(tr);
@@ -158,7 +183,7 @@
             }
 
             if (validRowCount === 0) {
-                document.getElementById('errorMsg').innerText = '유효한 데이터 행이 없거나 컬럼 구조를 확인해주세요.';
+                document.getElementById('errorMsg').innerText = '유효한 데이터 행이 없거나 지정된 컬럼(C, E, I열)에 데이터가 없습니다.';
                 return;
             }
 
